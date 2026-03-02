@@ -5,24 +5,33 @@ TODO
 2. A) Use either a math.comb for best performing mixes by brute forcing (defined by a rudimentary filterof eps, pe ratio, dividend yield))
 3. Return the selected stocks in a usable format (tuple)
 """
-import itertools
-import math
+def _safe_value(value: float | None) -> float:
+    if value is None:
+        return 0.0
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return value if value == value else 0.0
+
+
+def _stock_score(stock: str, stocks_data: dict[str, dict[str, float]]) -> float:
+    fundamentals = stocks_data.get(stock, {})
+    eps = _safe_value(fundamentals.get("eps"))
+    pe_ratio = _safe_value(fundamentals.get("pe_ratio"))
+    dividend_yield = _safe_value(fundamentals.get("dividend_yield"))
+    return eps * pe_ratio * dividend_yield
+
 
 def combination_stock_selector(stocks, stocks_data, num):
-    def evaluate_performance(comb):
-        score = 0
-        for stock in comb:
-            #This metric is very rudimentary and only serves as a baseline
-            score += stocks_data[stock]['eps'] * stocks_data[stock]['pe_ratio'] * stocks_data[stock]['dividend_yield']
-        return score
+    candidates: list[tuple[str, float]] = []
+    for stock in stocks:
+        candidates.append((stock, _stock_score(stock, stocks_data)))
 
-    num_stocks = num
-    max_perf = 0
-    best_comb = None
-    for i in range(1, num_stocks + 1):
-        for comb in itertools.combinations(stocks, i):
-            perf = evaluate_performance(comb)
-            if perf > max_perf:
-                max_perf = perf
-                best_comb = comb
-    return best_comb
+    if not candidates:
+        return tuple()
+
+    candidates.sort(key=lambda item: item[1], reverse=True)
+    num_stocks = max(1, min(int(num), len(candidates)))
+    selection = [stock for stock, _ in candidates[:num_stocks]]
+    return tuple(selection)

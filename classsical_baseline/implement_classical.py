@@ -9,10 +9,9 @@ TODO:
 """
 from __future__ import annotations
 from typing import Iterable
+import random
 import pandas as pd
 from classsical_baseline.combination_stock_selector import combination_stock_selector
-from classsical_baseline.random_stock_selector import random_stock_selector
-from classsical_baseline import stock_composition as stock_composition_module
 
 
 def _normalize_selection(selection: Iterable[str] | None, current_prices: pd.Series) -> tuple[str, ...]:
@@ -70,7 +69,15 @@ def _compose_changes(
 	cash: float,
 	current_prices: pd.Series,
 ) -> tuple[tuple[str, str, int], ...]:
-	composition_fn = getattr(stock_composition_module, "stock_composition", None)
+	composition_fn = None
+	try:
+		from classsical_baseline import stock_composition as stock_composition_module
+		composition_fn = getattr(stock_composition_module, "stock_composition", None)
+		if composition_fn is None:
+			composition_fn = getattr(stock_composition_module, "composition", None)
+	except Exception:
+		composition_fn = None
+
 	if callable(composition_fn):
 		call_options = [
 			{
@@ -95,6 +102,46 @@ def _compose_changes(
 				continue
 
 	return _default_stock_composition(selection, current_portfolio, cash, current_prices)
+
+
+def _fallback_random_selector(
+	stocks: list[str],
+	stock_data: dict[str, dict[str, float]],
+	previous_selection: tuple[str, ...],
+) -> tuple[str, ...]:
+	available = [symbol for symbol in stocks if symbol in stock_data]
+	if not available:
+		return tuple()
+
+	max_count = min(5, len(available))
+	min_count = 1
+	count = random.randint(min_count, max_count)
+
+	if previous_selection and random.random() < 0.5:
+		seeded = [symbol for symbol in previous_selection if symbol in available]
+		seeded = seeded[: min(len(seeded), count)]
+		remaining = [symbol for symbol in available if symbol not in seeded]
+		need = count - len(seeded)
+		picked = seeded + (random.sample(remaining, need) if need > 0 and remaining else [])
+		return tuple(picked)
+
+	return tuple(random.sample(available, count))
+
+
+def _resolve_random_selection(
+	stocks: list[str],
+	stock_data: dict[str, dict[str, float]],
+	previous_selection: tuple[str, ...],
+) -> tuple[str, ...]:
+	try:
+		from classsical_baseline import random_stock_selector as random_module
+		selector_fn = getattr(random_module, "random_stock_selector", None)
+		if callable(selector_fn):
+			return selector_fn(stocks, stock_data, list(previous_selection))
+	except Exception:
+		pass
+
+	return _fallback_random_selector(stocks, stock_data, previous_selection)
 
 
 def _execute_changes(
@@ -143,7 +190,7 @@ def implement_classical(
 	previous_selection: tuple[str, ...] = tuple(),
 ) -> dict[str, object]:
 	if strategy == "random":
-		selection = random_stock_selector(stocks, stock_data, list(previous_selection))
+		selection = _resolve_random_selection(stocks, stock_data, previous_selection)
 	elif strategy == "combination":
 		selection = combination_stock_selector(stocks, stock_data, num_stocks)
 	else:

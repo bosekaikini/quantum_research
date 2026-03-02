@@ -10,7 +10,6 @@ TODO:
 """
 
 from __future__ import annotations
-
 import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
@@ -56,7 +55,23 @@ def _safe_float(value, default: float = 0.0) -> float:
 def build_stock_data(stocks: list[str]) -> dict[str, dict[str, float]]:
     stock_data: dict[str, dict[str, float]] = {}
     for stock in stocks:
-        info = yf.Ticker(stock).info or {}
+        ticker = yf.Ticker(stock)
+        info: dict[str, object] = {}
+        try:
+            fast_info = getattr(ticker, "fast_info", None)
+            if fast_info:
+                info = {
+                    "currentPrice": _safe_float(fast_info.get("last_price")),
+                }
+        except Exception:
+            info = {}
+
+        if not info:
+            try:
+                info = ticker.info or {}
+            except Exception:
+                info = {}
+
         stock_data[stock] = {
             "eps": _safe_float(info.get("trailingEps") or info.get("forwardEps")),
             "pe_ratio": _safe_float(info.get("trailingPE") or info.get("forwardPE")),
@@ -92,15 +107,20 @@ def _summary_from_curve(name: str, curve: pd.Series, initial_budget: float) -> d
 
 def get_results(start_date: str, end_date: str, num_stocks: int = num, budget: float = budget) -> dict[str, object]:
     stocks = get_sp500_tickers()
-    stock_data = build_stock_data(stocks)
 
     price_data = yf.download(stocks, start=start_date, end=end_date, auto_adjust=True, progress=False)
     close_prices = price_data["Close"] if "Close" in price_data else pd.DataFrame()
     if isinstance(close_prices, pd.Series):
         close_prices = close_prices.to_frame(name=stocks[0])
     close_prices = close_prices.dropna(how="all").ffill().dropna(how="all")
+    if not close_prices.empty:
+        valid_symbols = [symbol for symbol in close_prices.columns if close_prices[symbol].notna().any()]
+        close_prices = close_prices[valid_symbols]
+
     if close_prices.empty:
         raise ValueError("No price data available for backtest window")
+
+    stock_data = build_stock_data(list(close_prices.columns))
 
     states = {
         "random": {"cash": float(budget), "portfolio": {}, "previous_selection": tuple(), "last_changes": tuple()},
