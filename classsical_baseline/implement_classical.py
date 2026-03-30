@@ -63,6 +63,46 @@ def _default_stock_composition(
 	return tuple(sell_orders + buy_orders)
 
 
+def _compose_from_weights(
+	selection: tuple[str, ...],
+	weights: dict[str, float],
+	current_portfolio: dict[str, int],
+	cash: float,
+	current_prices: pd.Series,
+) -> tuple[tuple[str, str, int], ...]:
+	if not selection:
+		return tuple(("SELL", symbol, shares) for symbol, shares in current_portfolio.items() if shares > 0)
+
+	portfolio_value = cash + sum(
+		shares * float(current_prices.get(symbol, 0.0))
+		for symbol, shares in current_portfolio.items()
+		if float(current_prices.get(symbol, 0.0)) > 0
+	)
+	
+	changes: list[tuple[str, str, int]] = []
+	for symbol, shares in current_portfolio.items():
+		if shares > 0 and symbol not in selection:
+			changes.append(("SELL", symbol, int(shares)))
+
+	for symbol in selection:
+		price = float(current_prices.get(symbol, 0.0))
+		if price <= 0:
+			continue
+		weight = weights.get(symbol, 0.0)
+		target_value = portfolio_value * weight
+		target_shares = int(target_value // price)
+		current_shares = int(current_portfolio.get(symbol, 0))
+		delta = target_shares - current_shares
+		if delta > 0:
+			changes.append(("BUY", symbol, delta))
+		elif delta < 0:
+			changes.append(("SELL", symbol, abs(delta)))
+
+	sell_orders = [change for change in changes if change[0] == "SELL"]
+	buy_orders = [change for change in changes if change[0] == "BUY"]
+	return tuple(sell_orders + buy_orders)
+
+
 def _compose_changes(
 	selection: tuple[str, ...],
 	current_portfolio: dict[str, int],
@@ -193,11 +233,48 @@ def implement_classical(
 		selection = _resolve_random_selection(stocks, stock_data, previous_selection)
 	elif strategy == "combination":
 		selection = combination_stock_selector(stocks, stock_data, num_stocks)
+	elif strategy == "metric_eps":
+		from random_implementation.deterministic_metrics import select_by_eps
+		selection = select_by_eps(stocks, stock_data, num_stocks)
+	elif strategy == "randomized_eps":
+		import random
+		from random_implementation.deterministic_metrics import select_by_eps
+		randomized_num = random.randint(1, 10)
+		selection = select_by_eps(stocks, stock_data, randomized_num)
+	elif strategy == "metric_pe":
+		from random_implementation.deterministic_metrics import select_by_pe
+		selection = select_by_pe(stocks, stock_data, num_stocks)
+	elif strategy == "metric_div":
+		from random_implementation.deterministic_metrics import select_by_div_yield
+		selection = select_by_div_yield(stocks, stock_data, num_stocks)
+	elif strategy == "stock_number":
+		from random_implementation.stock_number import select_stocks, get_composition_weights
+		selection = select_stocks(stocks, stock_data, num_stocks)
+		weights = get_composition_weights(selection)
+	elif strategy == "composition":
+		from random_implementation.composition import select_stocks, get_composition_weights
+		selection = select_stocks(stocks, stock_data, num_stocks)
+		weights = get_composition_weights(selection)
+	elif strategy == "selection":
+		from random_implementation.selection import select_stocks, get_composition_weights
+		selection = select_stocks(stocks, stock_data, num_stocks)
+		weights = get_composition_weights(selection)
+	elif strategy == "selection_and_composition":
+		from random_implementation.selection_and_composition import select_stocks, get_composition_weights
+		selection = select_stocks(stocks, stock_data, num_stocks)
+		weights = get_composition_weights(selection)
+	elif strategy == "fully_random":
+		from random_implementation.fully_random import select_stocks, get_composition_weights
+		selection = select_stocks(stocks, stock_data, num_stocks)
+		weights = get_composition_weights(selection)
 	else:
-		raise ValueError("strategy must be 'random' or 'combination'")
+		raise ValueError(f"strategy '{strategy}' is not supported")
 
 	normalized_selection = _normalize_selection(selection, current_prices)
-	changes = _compose_changes(normalized_selection, current_portfolio, cash, current_prices)
+	if strategy in ("stock_number", "composition", "selection", "selection_and_composition", "fully_random"):
+		changes = _compose_from_weights(normalized_selection, weights, current_portfolio, cash, current_prices)
+	else:
+		changes = _compose_changes(normalized_selection, current_portfolio, cash, current_prices)
 	updated_portfolio, updated_cash = _execute_changes(changes, current_portfolio, cash, current_prices)
 
 	return {

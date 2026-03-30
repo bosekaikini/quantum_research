@@ -26,7 +26,7 @@ start_date = "2023-01-01"
 end_date = "2025-01-01"
 num = 5
 budget = 10000
-MAX_TICKERS = 50
+MAX_TICKERS = 500
 REBALANCE_EVERY_N_DAYS = 21
 
 
@@ -119,10 +119,7 @@ def get_results(start_date: str, end_date: str, num_stocks: int = num, budget: f
     stock_data = build_stock_data(list(close_prices.columns))
 
     strategies = (
-        "random", "combination", 
-        "metric_eps", "metric_pe", "metric_div", 
-        "stock_number", "composition", "selection", 
-        "selection_and_composition", "fully_random"
+        "randomized_eps",
     )
     states = {
         s: {"cash": float(budget), "portfolio": {}, "previous_selection": tuple(), "last_changes": tuple()}
@@ -157,7 +154,7 @@ def get_results(start_date: str, end_date: str, num_stocks: int = num, budget: f
         for strategy in strategies:
             history[strategy].append(_portfolio_value(states[strategy]["cash"], states[strategy]["portfolio"], prices_today))
 
-    timeline = close_prices.index[: len(history["random"])]
+    timeline = close_prices.index[: len(history[strategies[0]])]
     curves = {
         s: pd.Series(history[s], index=timeline, name=f"{s.replace('_', ' ').title()} Value")
         for s in strategies
@@ -208,21 +205,11 @@ if __name__ == "__main__":
         styles = {col: '-' for col in plot_df.columns}
         styles['budget'] = 'k--'
         styles['s&p val'] = 'k--'
-        ax = plot_df.plot(title=f"Budget + Portfolio Value (Pass {i})", style=styles)
+        ax = plot_df.plot(title=f"Budget + Portfolio Value (Randomized EPS)", style=styles)
         ax.set_xlabel("Date")
         ax.set_ylabel("USD")
         ax.set_ylim(global_min, global_max)
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.savefig(f"backtest_results_{i}.png", bbox_inches="tight")
-        print(f"Saved plot to backtest_results_{i}.png")
+        plt.savefig(f"randomized_eps_results_{i}.png", bbox_inches="tight")
+        print(f"Saved plot to randomized_eps_results_{i}.png")
         plt.close(ax.figure)
-
-    import seaborn as sns
-    avg_corr = sum(df.corr() for df in runs_data) / len(runs_data)
-    
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(avg_corr, annot=True, cmap="coolwarm", fmt=".2f", square=True)
-    plt.title("Average Correlation between Strategies")
-    plt.savefig("correlation_heatmap.png", bbox_inches="tight")
-    print("Saved correlation heatmap to correlation_heatmap.png")
-    plt.close()
