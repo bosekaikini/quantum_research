@@ -14,12 +14,12 @@ def euclidean_distance(p1: tuple[float, float], p2: tuple[float, float]) -> floa
 	return math.sqrt(dx * dx + dy * dy)
 
 
-def move_firefly(
+def calculate_movement(
 	firefly: Any,
 	other_firefly: Any,
-	alpha: float,
-	beta: float,
-	gamma: float,
+	alpha: float = 0.2,
+	beta: float = 0.5,
+	gamma: float = 1.0,
 ) -> tuple[float, float]:
 	"""Move a dimmer firefly toward a brighter firefly and return new coordinates.
 
