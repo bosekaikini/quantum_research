@@ -1,0 +1,304 @@
+Firefly Portfolio Algorithm: Mathematical Specification
+
+Scope
+- This document summarizes the mathematical mechanics implemented in:
+  - firefly/firefly.py
+  - firefly/movement.py
+  - firefly/brightness.py
+  - firefly/cluster_brightness.py
+  - firefly/swarm.py
+  - firefly/baseline_eps.py
+
+Notation
+- N: number of stocks in the universe.
+- F: number of fireflies in the swarm.
+- T: number of days in one evaluation window.
+- i: stock index, j: firefly index, t: day index.
+- x_j = (x_j1, x_j2): 2D position of firefly j in [0,1]^2.
+- m_i, w_i: per-stock metric and confidence/weight signals used for ranking.
+- r_i,t: daily return of stock i at time t.
+- r_p,t: portfolio daily return at time t.
+- B0: initial budget.
+
+==================================================
+1) Data/Signal Utility Functions (swarm.py)
+==================================================
+
+1.1 get_sp500_tickers(max_tickers)
+- Loads S&P 500 symbols from a CSV and normalizes ticker symbols by replacing '.' with '-'.
+- Mathematical role: defines stock universe U = {ticker_1, ..., ticker_N}.
+
+1.2 _safe_float(value, default)
+- Converts values to float with NaN/None safety fallback.
+- Mathematical role: numeric sanitation operator S(v).
+
+1.3 _fetch_fundamentals(stock)
+- Fetches per-stock fundamentals:
+  - EPS (trailingEps or forwardEps)
+  - PE ratio (trailingPE or forwardPE)
+  - Dividend yield
+- Each is passed through _safe_float.
+
+1.4 _normalize_series(values, invert=False)
+Given vector v:
+- Clean/replace nulls to get v_clean.
+- If invert=True: v'_i = 1 / (v_clean_i + 1e-9)
+- Min-max normalize if dynamic range exists:
+  n_i = (v'_i - min(v')) / (max(v') - min(v'))
+- Else n_i = v'_i.
+- Fill nulls with 0.
+
+1.5 _scale_positive_series(values, cap)
+For each value v_i:
+- c_i = clip(v_i, 0, cap)
+- s_i = c_i / cap
+
+1.6 _build_market_signals(price_frame, fundamentals, tickers)
+From price matrix P:
+- Daily returns: R_t = P_t / P_{t-1} - 1
+- Momentum per stock:
+  mom_i = clip(P_i,last / P_i,first - 1, lower=-1)
+- Volatility per stock:
+  vol_i = std_t(R_i,t)
+
+Market regime:
+- market_breadth = mean_i(1[mom_i > 0])
+- market_trend = mean_i(mom_i)
+- regime_factor = clip(0.65 * market_breadth + 0.35 * max(0, market_trend / 0.05), 0.05, 1.0)
+
+Per-feature normalized scores:
+- momentum_score_i = scale_positive(mom_i, cap=0.2)
+- volatility_score_i = normalize(vol_i, invert=True)
+- eps_score_i = normalize(max(eps_i, 0))
+- dividend_score_i = normalize(max(dividend_i, 0))
+- pe_score_i = normalize(max(pe_i, 0), invert=True)
+
+Combined stock alpha-like score:
+- combined_i = 0.35*momentum_score_i + 0.20*volatility_score_i + 0.20*eps_score_i + 0.15*dividend_score_i + 0.10*pe_score_i
+
+Confidence-like stock weight signal:
+- confidence_i = 0.60*volatility_score_i + 0.40*(momentum_score_i + eps_score_i)/2
+
+Final signals passed to Firefly construction:
+- metric_i = regime_factor * combined_i
+- weight_i = regime_factor * (0.5 + 0.5*confidence_i)
+
+1.7 _extract_price_frame(downloaded)
+- Selects adjusted close (or close), flattens/normalizes column structure, removes timezone.
+- Mathematical role: canonical price matrix extractor.
+
+1.8 _build_rolling_windows(end_date, iterations, lookback_days, step_days)
+- Builds K rolling windows:
+  start_anchor = end_date - (lookback_days + step_days*(K-1))
+  window_k = [start_anchor + k*step_days, start_anchor + k*step_days + lookback_days]
+
+==================================================
+2) Firefly Individual Representation (firefly.py)
+==================================================
+
+2.1 Firefly.__init__
+- State variables:
+  - position x in [0,1]^2 (random unless provided)
+  - portfolio (ticker, allocation_weight) list
+  - brightness scalar (fitness)
+
+2.2 _generate_top_portfolio(top_n)
+For each stock i:
+- Position-induced nonlinear perturbation:
+  pos_signal_i = sin((i+1)*x1*pi) + cos((i+1)*x2*pi)
+- Base score:
+  base_i = 0.65*m_i + 0.35*w_i
+- Final ranking score:
+  score_i = base_i + 0.02*pos_signal_i
+
+Selection/allocation:
+- Keep top_n stocks by score_i descending.
+- Positive part:
+  p_i = max(score_i, 0)
+- total = sum_i p_i, avg_pos = mean_i p_i
+- Dynamic exposure (cash allowed):
+  exposure = clip(avg_pos / 0.75, 0.2, 1.0)
+
+Portfolio weights for selected names:
+- If total > 0:
+  alloc_i = (p_i / total) * exposure
+- Else alloc_i = 0
+
+Important implication:
+- Sum_i alloc_i = exposure <= 1, so residual (1-exposure) is implicit cash.
+
+2.3 get_list / rebuild_portfolio
+- get_list returns current portfolio.
+- rebuild_portfolio recomputes ranking/weights from current metrics/weights/position.
+
+==================================================
+3) Movement Dynamics (movement.py)
+==================================================
+
+3.1 euclidean_distance(p1, p2)
+- d = sqrt((p2_x-p1_x)^2 + (p2_y-p1_y)^2)
+
+3.2 calculate_movement(firefly, other_firefly, alpha, beta, gamma)
+Only if other is brighter:
+- Attractiveness decay:
+  beta_t = beta * exp(-gamma * d^2)
+- Random exploration noise:
+  eps_x, eps_y ~ Uniform(-0.5, 0.5)
+- Position update:
+  x_new = x + beta_t*(x_other - x) + alpha*eps
+- Component-wise clipping to [0,1].
+
+If other is not brighter, position is unchanged.
+
+==================================================
+4) Brightness/Fitness Evaluation (brightness.py)
+==================================================
+
+4.1 _load_price_data(...)
+- Downloads prices, computes return matrix R with shape [N x T]:
+  R_i,t = P_i,t / P_i,t-1 - 1
+
+4.2 _benchmark_average_daily_return(...)
+- Computes mean daily return of S&P 500 benchmark:
+  r_bench_avg = mean_t(r_bench,t)
+
+4.3 _portfolio_performance_from_returns(firefly, matrix, final_tickers, benchmark_avg_daily_return)
+Portfolio construction from firefly allocations:
+- Keep aligned assets with nonnegative weights.
+- If sum(weights) <= 0: equal-weight fallback.
+- If sum(weights) > 1: renormalize to sum to 1.
+- Else if sum(weights) < 1: keep residual as implicit cash.
+
+Portfolio return series:
+- r_p,t = sum_i w_i * R_i,t
+
+Metrics:
+- cumulative_return = prod_t(1 + r_p,t) - 1
+- avg_daily_return = mean_t(r_p,t)
+- volatility = std_t(r_p,t)
+- excess_avg_daily_return = avg_daily_return - benchmark_avg_daily_return
+- portfolio_value = B0 * (1 + cumulative_return)
+
+Fitness objective:
+- fitness = 100*cumulative_return + 2*(avg_daily_return/volatility), if volatility > 0
+- fitness = 100*cumulative_return, otherwise
+
+4.4 calculate_brightness(...)
+- Returns fitness only (wrapper around full performance).
+
+4.5 calculate_portfolio_performance / calculate_portfolio_performance_from_prices
+- Two interfaces to the same core performance function:
+  - one fetches data internally
+  - one uses preloaded price frames
+
+==================================================
+5) Cluster Scoring and Selection (cluster_brightness.py)
+==================================================
+
+5.1 cluster_indices(fireflies, center_index, radius)
+- Neighborhood of k:
+  N(k) = {j | distance(x_k, x_j) <= radius}
+
+5.2 cluster_brightness_values(...)
+- Cluster mean score:
+  C_mean(k) = mean_{j in N(k)} brightness_j
+
+5.3 cluster_cumulative_values(...)
+- Cluster total score:
+  C_sum(k) = sum_{j in N(k)} brightness_j
+
+5.4 _adaptive_noise_floor(cluster_scores)
+Robust threshold using median and IQR-like statistic:
+- med = median(scores)
+- q1 = median({s | s <= med})
+- q3 = median({s | s >= med})
+- iqr = q3 - q1
+- noise_floor = med + 0.5*iqr
+
+5.5 select_cluster_indexes(cluster_scores, noise_floor, cluster_chosen)
+- threshold = provided noise_floor or adaptive threshold.
+- Rank descending, keep indexes with score > threshold.
+- If none pass, keep argmax(score).
+- Return top max(1, cluster_chosen) indexes.
+
+==================================================
+6) Full Swarm Optimization Loop (run_swarm in swarm.py)
+==================================================
+
+Inputs (main):
+- num_fireflies F, iterations K
+- metrics/weights initial vectors (or derived dynamically)
+- stock universe, budget, rolling-window parameters
+- cluster_radius, cluster_chosen, noise_floor
+- mutation_prob, immigrant_fraction
+
+Pipeline:
+1. Universe + fundamentals:
+- Load tickers, fetch fundamentals in parallel.
+
+2. Time windows:
+- Build rolling windows of lookback_days, stepped by step_days.
+- Preload full stock and benchmark price history.
+
+3. Initial market-driven signal derivation:
+- Compute (metric_i, weight_i) from first window if supplied signals are missing/degenerate.
+
+4. Initialize swarm:
+- Create F Firefly objects with random positions and portfolios.
+
+5. For each iteration window k:
+- Recompute market signals for current window.
+- Push these signals into each firefly and rebuild portfolios.
+- Compute raw brightness (fitness) for every firefly.
+- Compute cluster mean/total scores.
+- Select winning cluster centers via thresholding.
+- Evaluate selected fireflies and choose iteration-best.
+- Update global best if improved.
+- Update cumulative capital trajectory:
+  cumulative_value <- cumulative_value * (1 + iteration_best_cumulative_return)
+  cumulative_return <- cumulative_value / B0 - 1
+
+6. Build next generation:
+- Elitism: keep top selected fraction (~25% bounded).
+- Immigration: with probability immigrant_fraction, spawn random new firefly.
+- Otherwise create child from selected parents:
+  - Position via attraction movement (or parent clone if single parent).
+  - With probability mutation_prob, add bounded mutation in each coordinate:
+    delta ~ Uniform(-0.15, 0.15)
+- Rebuild child portfolio and continue until size F.
+
+7. Output:
+- Iteration history with window dates, selected clusters, returns, and fitness.
+- Best firefly object, best portfolio, best performance.
+- Final cumulative return/value.
+
+==================================================
+7) Deterministic Baseline Strategy (baseline_eps.py)
+==================================================
+
+baseline_eps(stock_tickers, eps_values, top_n, budget)
+- Rank stocks by EPS descending.
+- Select top_n.
+- Let e_i = max(EPS_i, 0).
+- If sum_i e_i > 0:
+  w_i = e_i / sum_i e_i
+- Else fallback to equal weights over top_n.
+- Returns static baseline portfolio and budget.
+
+==================================================
+8) Objective and Design Summary
+==================================================
+
+Core optimization target:
+- Maximize risk-adjusted portfolio quality using:
+  fitness = 100*cumulative_return + 2*(avg_daily_return/volatility, when volatility > 0)
+
+Key custom design choices in this implementation:
+- Position-dependent sinusoidal perturbation in stock ranking score.
+- Dynamic regime factor from market breadth + trend.
+- Dynamic exposure allowing cash allocation in weak regimes.
+- Cluster-based selection before evolutionary reproduction.
+- Elitism + immigration + mutation hybrid population update.
+- Rolling window re-estimation of signals to adapt through time.
+
+End of specification.
