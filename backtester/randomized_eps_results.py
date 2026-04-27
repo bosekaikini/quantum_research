@@ -20,7 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
-from classsical_baseline.implement_classical import implement_classical
+from classical_baseline.implement_classical import implement_classical
 
 start_date = "2023-01-01"
 end_date = "2025-01-01"
@@ -210,6 +210,6 @@ if __name__ == "__main__":
         ax.set_ylabel("USD")
         ax.set_ylim(global_min, global_max)
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.savefig(f"randomized_eps_results_{i}.png", bbox_inches="tight")
+        plt.savefig(ROOT_DIR / "plots" / "randomized_eps" / f"randomized_eps_results_{i}.png", bbox_inches="tight")
         print(f"Saved plot to randomized_eps_results_{i}.png")
         plt.close(ax.figure)

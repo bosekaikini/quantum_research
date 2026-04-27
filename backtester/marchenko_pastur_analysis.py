@@ -62,7 +62,7 @@ def compute_marchenko_pastur(returns: pd.DataFrame):
     plt.ylabel("Eigenvalue Magnitude")
     plt.legend()
     plt.grid(True, alpha=0.3)
-    plt.savefig("eigenvalues_mp.png", bbox_inches="tight")
+    plt.savefig(ROOT_DIR / "plots" / "marchenko_pastur_analysis" / "eigenvalues_mp.png", bbox_inches="tight")
     print("Saved eigenvalue plot to eigenvalues_mp.png")
     plt.close()
     
