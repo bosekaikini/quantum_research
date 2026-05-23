@@ -1,51 +1,25 @@
+import sys
+from pathlib import Path
+
 from firefly import Firefly
 from movement import calculate_movement
 from brightness import calculate_brightness, calculate_portfolio_performance_from_prices
 from cluster_brightness import cluster_brightness_values, cluster_cumulative_values, select_cluster_indexes
 import pandas as pd
-from functools import lru_cache
 from copy import deepcopy
 import yfinance as yf
-import concurrent.futures
 import random
 
+_ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(_ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(_ROOT_DIR))
 
+from backtester.clean import (
+    build_stock_data,
+    fetch_fundamentals as _fetch_fundamentals,
+    get_sp500_tickers,
+)
 
-@lru_cache(maxsize=1)
-def get_sp500_tickers(max_tickers: int | None = None) -> list[str]:
-    fallback_url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
-    table = pd.read_csv(fallback_url)
-    symbols = table["Symbol"].tolist()
-    tickers = [symbol.replace(".", "-") for symbol in symbols]
-    return tickers if max_tickers is None else tickers[:max_tickers]
-
-
-def _safe_float(value, default: float = 0.0) -> float:
-    if value is None:
-        return default
-    try:
-        if pd.isna(value):
-            return default
-    except TypeError:
-        pass
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _fetch_fundamentals(stock: str) -> tuple[str, dict[str, float]]:
-    ticker = yf.Ticker(stock)
-    try:
-        info = ticker.info or {}
-    except Exception:
-        info = {}
-
-    return stock, {
-        "eps": _safe_float(info.get("trailingEps") or info.get("forwardEps")),
-        "pe_ratio": _safe_float(info.get("trailingPE") or info.get("forwardPE")),
-        "dividend_yield": _safe_float(info.get("dividendYield")),
-    }
 
 
 def _normalize_series(values: pd.Series, invert: bool = False) -> pd.Series:
@@ -159,6 +133,7 @@ def run_swarm(
     top_n=None,
     mutation_prob=0.2,
     immigrant_fraction=0.25,
+    end_date=None,
 ):
     """
     Orchestrates the Firefly algorithm over a given number of iterations.
@@ -178,12 +153,10 @@ def run_swarm(
     if stock_tickers is None:
         stock_tickers = get_sp500_tickers()
 
-    fundamentals: dict[str, dict[str, float]] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        for stock, data in executor.map(_fetch_fundamentals, stock_tickers):
-            fundamentals[stock] = data
+    fundamentals = build_stock_data(list(stock_tickers))
 
-    end_date = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+    if end_date is None:
+        end_date = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
     windows = _build_rolling_windows(end_date, iterations, lookback_days, step_days)
 
     global_start = windows[0][0] - pd.Timedelta(days=5)

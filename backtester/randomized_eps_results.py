@@ -20,6 +20,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
+from backtester.clean import build_stock_data, clean_close_prices, get_sp500_tickers
 from classical_baseline.implement_classical import implement_classical
 
 start_date = "2023-01-01"
@@ -28,53 +29,6 @@ num = 5
 budget = 10000
 MAX_TICKERS = 500
 REBALANCE_EVERY_N_DAYS = 21
-
-
-def get_sp500_tickers(max_tickers: int = MAX_TICKERS) -> list[str]:
-    fallback_url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
-    table = pd.read_csv(fallback_url)
-    symbols = table["Symbol"].tolist()
-    tickers = [symbol.replace(".", "-") for symbol in symbols]
-    return tickers[:max_tickers]
-
-
-def _safe_float(value, default: float = 0.0) -> float:
-    if value is None:
-        return default
-    try:
-        if pd.isna(value):
-            return default
-    except TypeError:
-        pass
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-import concurrent.futures
-
-def _fetch_info(stock: str) -> tuple[str, dict[str, float]]:
-    ticker = yf.Ticker(stock)
-    try:
-        info = ticker.info or {}
-    except Exception:
-        info = {}
-
-    return stock, {
-        "eps": _safe_float(info.get("trailingEps") or info.get("forwardEps")),
-        "pe_ratio": _safe_float(info.get("trailingPE") or info.get("forwardPE")),
-        "dividend_yield": _safe_float(info.get("dividendYield")),
-        "price": _safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
-    }
-
-def build_stock_data(stocks: list[str]) -> dict[str, dict[str, float]]:
-    stock_data: dict[str, dict[str, float]] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-        results = executor.map(_fetch_info, stocks)
-        for stock, data in results:
-            stock_data[stock] = data
-    return stock_data
 
 
 def _portfolio_value(cash: float, portfolio: dict[str, int], prices: pd.Series) -> float:
@@ -102,16 +56,12 @@ def _summary_from_curve(name: str, curve: pd.Series, initial_budget: float) -> d
 
 
 def get_results(start_date: str, end_date: str, num_stocks: int = num, budget: float = budget, run_idx: int = 1) -> dict[str, object]:
-    stocks = get_sp500_tickers()
+    stocks = get_sp500_tickers(MAX_TICKERS)
 
     price_data = yf.download(stocks, start=start_date, end=end_date, auto_adjust=True, progress=False)
-    close_prices = price_data["Close"] if "Close" in price_data else pd.DataFrame()
-    if isinstance(close_prices, pd.Series):
-        close_prices = close_prices.to_frame(name=stocks[0])
-    close_prices = close_prices.dropna(how="all").ffill().dropna(how="all")
-    if not close_prices.empty:
-        valid_symbols = [symbol for symbol in close_prices.columns if close_prices[symbol].notna().any()]
-        close_prices = close_prices[valid_symbols]
+    close_prices = clean_close_prices(
+        price_data, single_ticker_fallback=stocks[0] if stocks else None
+    )
 
     if close_prices.empty:
         raise ValueError("No price data available for backtest window")
