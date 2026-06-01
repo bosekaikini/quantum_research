@@ -106,7 +106,7 @@ def _run_single_scenario(
 
 def plot_trajectories(env: GridWorld, starts, goals, baseline_traj, firefly_traj, out_path: Path) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(10, 5), sharex=True, sharey=True)
-    titles = ["Baseline (goal-seeking)", "Firefly/FPSO swarm"]
+    titles = ["Baseline (discrete MAPF, greedy)", "Firefly/FPSO (continuous swarm)"]
 
     for ax, traj, title in zip(axes, [baseline_traj, firefly_traj], titles):
         ax.set_title(title)

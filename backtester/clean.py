@@ -59,14 +59,14 @@ def build_stock_data(stocks: list[str], max_workers: int = 20) -> StockData:
 
 
 @lru_cache(maxsize=1)
-def _load_sp500_symbols() -> list[str]:
+def load_sp500_symbols() -> list[str]:
     table = pd.read_csv(SP500_TICKERS_URL)
     return [symbol.replace(".", "-") for symbol in table["Symbol"].tolist()]
 
 
 def get_sp500_tickers(max_tickers: int | None = 50) -> list[str]:
     """S&P 500 symbols from the constituents CSV (Yahoo-style tickers)."""
-    tickers = _load_sp500_symbols()
+    tickers = load_sp500_symbols()
     if max_tickers is None:
         return tickers
     return tickers[:max_tickers]

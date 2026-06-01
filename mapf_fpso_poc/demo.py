@@ -46,7 +46,7 @@ def main():
 
     if not args.no_baseline:
         baseline = run_episode_baseline(env, starts, goals, steps=args.steps, seed=args.seed)
-        _print_summary("BASELINE", baseline)
+        _print_summary("BASELINE (discrete grid)", baseline)
         print("")
 
     result = run_episode(env, starts, goals, steps=args.steps, seed=args.seed)
