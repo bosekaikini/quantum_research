@@ -81,8 +81,8 @@ if __name__ == "__main__":
     plt.figure(figsize=(10, 6))
     shap.summary_plot(shap_values, X_sample, show=False)
     plt.title("SHAP Global Parameter Impact Distribution")
-    plt.savefig("shap_summary.png", bbox_inches="tight")
-    print("Saved SHAP visualization chart to shap_summary.png")
+    plt.savefig(ROOT_DIR / "plots" / "shap_analysis" / "shap_summary.png", bbox_inches="tight")
+    print("Saved SHAP visualization chart to plots/shap_analysis/shap_summary.png")
     plt.close()
     
     # Calculate absolute global importance
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     for i, (feature, score) in enumerate(shap_ranking.items(), 1):
         print(f"{i}. {feature}: {score:.6f} SHAP absolute impact/day")
         
-    with open("shap_ranking.md", "w") as f:
+    with open(ROOT_DIR / "docs" / "shap_ranking.md", "w") as f:
         f.write("# Independent Parameter SHAP Valuation\n\n")
         f.write("By dissecting the 10 strategy implementations down to their sub-level boolean logic gates (e.g. 'Is Selection Random?' vs 'Does it use EPS?'), we successfully mapped out **5,010 specific observations** of 'Parameter Logic' → 'Daily P&L Return'.\n\n")
         f.write("We injected the S&P 500 Daily Return as the fundamental control variable (`Market_Return`) and fed the matrix into a Random Forest Regressor algorithm. Below are the **absolute global SHAP values** (average magnitude feature impact per day) confirming exactly which independent parameter is the prime driver of portfolio swings.\n\n")

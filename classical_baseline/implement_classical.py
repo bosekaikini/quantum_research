@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Iterable
 import random
 import pandas as pd
-from classsical_baseline.combination_stock_selector import combination_stock_selector
+from classical_baseline.combination_stock_selector import combination_stock_selector
 
 
 def _normalize_selection(selection: Iterable[str] | None, current_prices: pd.Series) -> tuple[str, ...]:
@@ -111,7 +111,7 @@ def _compose_changes(
 ) -> tuple[tuple[str, str, int], ...]:
 	composition_fn = None
 	try:
-		from classsical_baseline import stock_composition as stock_composition_module
+		from classical_baseline import stock_composition as stock_composition_module
 		composition_fn = getattr(stock_composition_module, "stock_composition", None)
 		if composition_fn is None:
 			composition_fn = getattr(stock_composition_module, "composition", None)
@@ -174,7 +174,7 @@ def _resolve_random_selection(
 	previous_selection: tuple[str, ...],
 ) -> tuple[str, ...]:
 	try:
-		from classsical_baseline import random_stock_selector as random_module
+		from classical_baseline import random_stock_selector as random_module
 		selector_fn = getattr(random_module, "random_stock_selector", None)
 		if callable(selector_fn):
 			return selector_fn(stocks, stock_data, list(previous_selection))
